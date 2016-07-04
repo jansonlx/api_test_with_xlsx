@@ -11,9 +11,11 @@
 #     __/ / /-/ / / | /___/ / /_/ / / | /
 #    /___/_/ /_/_/|_|/_____/\____/_/|_|/
 #
-# 日期：17 Jun 2016
-# 版本：1.1
+# 日期：29 Jun 2016
+# 版本：1.2
 # 更新日誌:
+#     29 Jun 2016
+#         * 登入失敗後進行多次嘗試，還是無法登入時不再執行其他接口的測試
 #     17 Jun 2016
 #         * 使用 Requests 提供的方式保持同一會話
 #           （之前是操作 session 值）
@@ -23,6 +25,7 @@
 ###############################################################################
 
 
+import time
 import re
 import smtplib
 from email.mime.text import MIMEText
@@ -84,6 +87,7 @@ def send_mail(mail_host, mail_from, mail_pwd, mail_to, mail_sub, content):
         logging.error('>>>>> 郵件發送失敗 <<<<<\n>> 異常：%s %s\n' % (type(e), e.args))
     else:
         logging.info('>>>>> 接口測試完成，郵件發送成功！ <<<<<')
+
 
 
 
@@ -169,15 +173,41 @@ def get_test_case(test_case_file, sheet1, sheet2):
             mail_content = '%sAPI: %s >> 執行失敗 >><br>%s<br>「check_point」不可為空<br><br>' % (mail_content, test_case['api_title'], test_case['api_url'])
             continue
 
-        # 執行接口測試，把接口返回值保存在 res 字典中
-        res[test_case['api_id']], mail_content = run_api(s, test_case['api_url'], test_case['req_method'], test_case['req_data'], test_case['api_title'], test_case['check_point'], mail_content)
-
-        ##------ 備份1：通過「session id」保持同一會話（保證登入狀態） ------##
-        ## run_api 函數裏會把登入接口的 session_id（如在 Excel 表中未設置）保存到接口返回值中
-        #if 'session_id' in res[test_case['api_id']]:
-        #    basic_data['session_id'] = res[test_case['api_id']]['session_id']
-        #else:
-        #    pass
+        # 執行登入接口，無法登入時進行多次嘗試
+        if re.match(r'^.*/user/login$', test_case['api_url']):
+            # 標記是否登入成功
+            login_success = False
+            # 成功則不需要記錄登入失敗的紀錄，失敗則只記錄一次登入接口失敗的紀錄
+            temp_content = mail_content
+            # 嘗試 3 次登入（由於業務要求第 4 次起需要驗證碼，無法再次嘗試）
+            for count in range(1, 4):
+                res[test_case['api_id']], mail_content = run_api(s, test_case['api_url'], test_case['req_method'], test_case['req_data'], test_case['api_title'], test_case['check_point'], mail_content)
+                if str(res[test_case['api_id']]).count("'msg': 'success'") > 0:
+                    login_success = True
+                    # 如果登入成功而非第一次執行登入接口，則把之前登入失敗的紀錄清除
+                    if count != 1:
+                        mail_content = temp_content
+                    ##------ 備份1：通過「session id」保持同一會話（保證登入狀態） ------##
+                    ## run_api 函數裏會把登入接口的 session_id（如在 Excel 表中未設置）保存到接口返回值中
+                    #if 'session_id' in res[test_case['api_id']]:
+                    #    basic_data['session_id'] = res[test_case['api_id']]['session_id']
+                    #else:
+                    #    pass
+                    break
+                else:
+                    # 儲存第一次登入失敗的信息，多次嘗試後還是失敗時只保留這個紀錄
+                    if count == 1:
+                        temp_content_err = mail_content
+                    # 每次失敗後等待一定時間（秒）後再嘗試
+                    time.sleep(30)
+                    continue
+            if not login_success:
+                logging.error('\n>>>>> 登入失敗！無法進行更多的接口測試！ <<<<<\n')
+                mail_content = '%s>>>>> 登入失敗！無法進行更多的接口測試！ <<<<<' % (temp_content_err,)
+                break
+        else:
+            # 執行接口測試，把接口返回值保存在 res 字典中
+            res[test_case['api_id']], mail_content = run_api(s, test_case['api_url'], test_case['req_method'], test_case['req_data'], test_case['api_title'], test_case['check_point'], mail_content)
 
     if res == {}:
         logging.error('未執行任何接口測試\n')
