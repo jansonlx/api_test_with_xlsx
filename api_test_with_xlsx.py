@@ -11,20 +11,23 @@
 #     __/ / /-/ / / | /___/ / /_/ / / | /
 #    /___/_/ /_/_/|_|/_____/\____/_/|_|/
 #
-# 日期：29 Jun 2016
-# 版本：1.2
+# 日期：30 Jun 2016
+# 版本：2.0
 # 更新日誌:
+#     30 Jun 2016
+#         + 記錄每個接口執行時間，所有接口執行成功後顯示總紀錄
 #     29 Jun 2016
 #         * 登入失敗後進行多次嘗試，還是無法登入時不再執行其他接口的測試
 #     17 Jun 2016
-#         * 使用 Requests 提供的方式保持同一會話
-#           （之前是操作 session 值）
+#         + 使用 Requests 提供的方式保持同一會話
+#         - 使用 session 值保持同一會話
 #     19 May 2016
 #         + 第一版
 #
 ###############################################################################
 
 
+import operator
 import time
 import re
 import smtplib
@@ -179,9 +182,19 @@ def get_test_case(test_case_file, sheet1, sheet2):
             login_success = False
             # 成功則不需要記錄登入失敗的紀錄，失敗則只記錄一次登入接口失敗的紀錄
             temp_content = mail_content
+            # 多次登录后，只记录一次登录接口执行时间
+            temp_time = time_record
             # 嘗試 3 次登入（由於業務要求第 4 次起需要驗證碼，無法再次嘗試）
             for count in range(1, 4):
+                time_record = temp_time
+                # 開始記錄接口執行時間（只記錄運行「run_api」函數使用時間）
+                time_before = time.time()
                 res[test_case['api_id']], mail_content = run_api(s, test_case['api_url'], test_case['req_method'], test_case['req_data'], test_case['api_title'], test_case['check_point'], mail_content)
+                time_after = time.time()
+                time_spend = round((time_after - time_before), 2)
+                # 接口执行时间记录到 time_record 列表中
+                time_record.append({'api_title': test_case['api_title'], 'time_spend': time_spend})
+
                 if str(res[test_case['api_id']]).count("'msg': 'success'") > 0:
                     login_success = True
                     # 如果登入成功而非第一次執行登入接口，則把之前登入失敗的紀錄清除
@@ -207,7 +220,11 @@ def get_test_case(test_case_file, sheet1, sheet2):
                 break
         else:
             # 執行接口測試，把接口返回值保存在 res 字典中
+            time_before = time.time()
             res[test_case['api_id']], mail_content = run_api(s, test_case['api_url'], test_case['req_method'], test_case['req_data'], test_case['api_title'], test_case['check_point'], mail_content)
+            time_after = time.time()
+            time_spend = round((time_after - time_before), 2)
+            time_record.append({'api_title': test_case['api_title'], 'time_spend': time_spend})
 
     if res == {}:
         logging.error('未執行任何接口測試\n')
@@ -228,6 +245,13 @@ def get_test_case(test_case_file, sheet1, sheet2):
             mail_content = random.choice(contents)
             basic_data['mail_sub'] = '%s〔正常〕' % (basic_data['mail_sub'],)
             mail_to = mail_to_me
+
+            # 按執行時間逆序排序；只有所有接口執行成功才顯示各個接口執行時間（郵件形式）
+            time_record_sort = sorted(time_record, key=operator.itemgetter('time_spend'), reverse=True)
+            mail_content = '%s<br><br>各個接口執行測試時間排序：<br>接口名稱 : 執行時間（秒）' % (mail_content,)
+            for item in time_record_sort:
+                mail_content = '%s<br>%s : %s' % (mail_content, item['api_title'], item['time_spend'])
+
         send_mail(basic_data['mail_host'], basic_data['mail_from'], basic_data['mail_pwd'], mail_to, basic_data['mail_sub'], mail_content)
     elif basic_data['if_mail'] == 2:
         if mail_content != '':
