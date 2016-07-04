@@ -14,6 +14,7 @@
 # 日期：17 Jun 2016
 # 版本：1.1
 # 更新日誌:
+#     17 Jun 2016
 #         * 使用 Requests 提供的方式保持同一會話
 #           （之前是操作 session 值）
 #     19 May 2016
@@ -169,7 +170,7 @@ def get_test_case(test_case_file, sheet1, sheet2):
             continue
 
         # 執行接口測試，把接口返回值保存在 res 字典中
-        res[test_case['api_id']], mail_content = run_api(test_case['api_url'], test_case['req_method'], test_case['req_data'], test_case['api_title'], test_case['check_point'], basic_data['session_id'], mail_content)
+        res[test_case['api_id']], mail_content = run_api(s, test_case['api_url'], test_case['req_method'], test_case['req_data'], test_case['api_title'], test_case['check_point'], mail_content)
 
         ##------ 備份1：通過「session id」保持同一會話（保證登入狀態） ------##
         ## run_api 函數裏會把登入接口的 session_id（如在 Excel 表中未設置）保存到接口返回值中
@@ -210,7 +211,7 @@ def get_test_case(test_case_file, sheet1, sheet2):
     #print(mail_content)
 
 
-def run_api(url, req_method, req_data, api_title, check_point, session_id, mail_content):
+def run_api(s, url, req_method, req_data, api_title, check_point, mail_content):
     headers = {
             'Content-Type':'application/x-www-form-urlencoded; charset=UTF-8',
             'X-Requested-With':'XMLHttpRequest',
@@ -224,9 +225,9 @@ def run_api(url, req_method, req_data, api_title, check_point, session_id, mail_
 
     try:
         if req_method == 'post':
-            r = requests.post(url, data=req_data, headers=headers)
+            r = s.post(url, data=req_data, headers=headers)
         elif req_method == 'get':
-            r = requests.get(url, params=req_data, headers=headers) if req_data else requests.get(url, headers=headers)
+            r = s.get(url, params=req_data, headers=headers) if req_data else s.get(url, headers=headers)
         else:
             logging.error('API: %s >> 執行失敗 >>\n>> 原因：「req_method」參數不正確。\n' % (api_title,))
             mail_content = '%sAPI: %s >> 執行失敗 >><br>>> 原因：「req_method」參數不正確。<br><br>' % (mail_content, api_title)
