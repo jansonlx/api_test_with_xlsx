@@ -11,9 +11,11 @@
 #     __/ / /-/ / / | /___/ / /_/ / / | /
 #    /___/_/ /_/_/|_|/_____/\____/_/|_|/
 #
-# 日期：19 May 2016
-# 版本：1.0
+# 日期：17 Jun 2016
+# 版本：1.1
 # 更新日誌:
+#         * 使用 Requests 提供的方式保持同一會話
+#           （之前是操作 session 值）
 #     19 May 2016
 #         + 第一版
 #
@@ -31,17 +33,12 @@ import sys
 # Excel 文件處理
 try:
     import openpyxl
-except ImportError as e:
-    sys.exit('>>>>> 請安裝「openpyxl」：pip install openpyxl <<<<<\n')
-#    os.system('pip install openpyxl')
-#    import openpyxl
-
-try:
     import requests
-except ImportError as e:
-    sys.exit('>>>>> 請安裝「requests」：pip install requests <<<<<\n')
-#    os.system('pip install requests')
-#    import requests
+except ImportError:
+    sys.exit('>>>>> 此程序需使用以下第三方庫：openpyxl / requests (pip install [module name] <<<<<\n')
+#    os.system('pip install xxx')
+#    import xxx
+
 
 # 設置 requests 只顯示 WARNING 級別日誌（默認還會顯示 INOF 和 DEBUG 日誌）
 logging.getLogger('requests').setLevel(logging.WARNING)
@@ -94,11 +91,14 @@ def send_mail(mail_host, mail_from, mail_pwd, mail_to, mail_sub, content):
 #       sheet1 第一個表格名稱
 #       sheet2 第二個表格名稱
 def get_test_case(test_case_file, sheet1, sheet2):
-    # 邮件正文，需要在多個函數中引用
+    # 邮件正文
     mail_content = ''
     # 以字典形式存放數據，便於後續操作
     res = {}    # 接口返回數據
     basic_data = {}     # Excel 中基礎數據
+
+    # 使所有的請求保持同一會話
+    s = requests.Session()
 
     # 獲取第一個表格數據
     # data_only=True 可避免讀取到單元格的公式
@@ -116,7 +116,7 @@ def get_test_case(test_case_file, sheet1, sheet2):
         try:
             basic_data[r_key.strip()] = r_value.strip()
         # 可能存在 int 類型值，無須處理
-        except AttributeError as e:
+        except AttributeError:
             basic_data[r_key.strip()] = r_value
 
     # .split(',') 通過「,」劃分把 mail_to_* 轉為列表
@@ -170,11 +170,13 @@ def get_test_case(test_case_file, sheet1, sheet2):
 
         # 執行接口測試，把接口返回值保存在 res 字典中
         res[test_case['api_id']], mail_content = run_api(test_case['api_url'], test_case['req_method'], test_case['req_data'], test_case['api_title'], test_case['check_point'], basic_data['session_id'], mail_content)
-        # run_api 函數裏會把登入接口的 session_id（如在 Excel 表中未設置）保存到接口返回值中
-        if 'session_id' in res[test_case['api_id']]:
-            basic_data['session_id'] = res[test_case['api_id']]['session_id']
-        else:
-            pass
+
+        ##------ 備份1：通過「session id」保持同一會話（保證登入狀態） ------##
+        ## run_api 函數裏會把登入接口的 session_id（如在 Excel 表中未設置）保存到接口返回值中
+        #if 'session_id' in res[test_case['api_id']]:
+        #    basic_data['session_id'] = res[test_case['api_id']]['session_id']
+        #else:
+        #    pass
 
     if res == {}:
         logging.error('未執行任何接口測試\n')
@@ -215,9 +217,10 @@ def run_api(url, req_method, req_data, api_title, check_point, session_id, mail_
             'Connection':'keep-alive',
             'User-Agent':'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_10_5) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/50.0.2661.94 Safari/537.36'
             }
-    # session_id 不為 None 時
-    if session_id:
-        headers['Cookie'] = 'session_id=%s' % (session_id,)
+    ##------ 備份1：通過「session id」保持同一會話（保證登入狀態） ------##
+    ## session_id 不為 None 時
+    #if session_id:
+    #    headers['Cookie'] = 'session_id=%s' % (session_id,)
 
     try:
         if req_method == 'post':
@@ -253,11 +256,12 @@ def run_api(url, req_method, req_data, api_title, check_point, session_id, mail_
 
     if is_check_point:
         logging.info('API: %s >> 執行成功' % (api_title,))
-        # 如在 Excel 表中未設置 session_id 則把登入接口的 session_id 保留下來
-        if not session_id and re.match(r'^.*/user/login$', url):
-            resp['session_id'] = r.cookies.values()[0]
-        else:
-            pass
+        ##------ 備份1：通過「session id」保持同一會話（保證登入狀態） ------##
+        ## 如在 Excel 表中未設置 session_id 則把登入接口的 session_id 保留下來
+        #if not session_id and re.match(r'^.*/user/login$', url):
+        #    resp['session_id'] = r.cookies.values()[0]
+        #else:
+        #    pass
         return resp, mail_content
     else:
         logging.error('API: %s >> 執行失敗 >>\n>> Status Code: %d\n>> URL: %s\n>> Response: %s\n' % (api_title, r.status_code, url, resp))
