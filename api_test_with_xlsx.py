@@ -11,9 +11,11 @@
 #     __/ / /-/ / / | /___/ / /_/ / / | /
 #    /___/_/ /_/_/|_|/_____/\____/_/|_|/
 #
-# 日期：30 Jun 2016
-# 版本：2.0
+# 日期：4 Jul 2016
+# 版本：2.1
 # 更新日誌:
+#     04 Jul 2016
+#         + 新增 get_role_id 函數獲取特定名稱的角色 ID
 #     30 Jun 2016
 #         + 記錄每個接口執行時間，所有接口執行成功後顯示總紀錄
 #     29 Jun 2016
@@ -92,6 +94,18 @@ def send_mail(mail_host, mail_from, mail_pwd, mail_to, mail_sub, content):
         logging.info('>>>>> 接口測試完成，郵件發送成功！ <<<<<')
 
 
+# 作用：通過查詢角色接口的返回數據獲取特定名稱的角色 ID（角色刪除接口需要）
+# 參數：res_role_query 查詢角色接口的返回數據（Excel 使用時類似 res['role_query']）
+#       role_name 需要獲取到 ID 的角色名稱
+def get_role_id(res_role_query, role_name):
+    role_list = res_role_query['data']['list']
+    for role in role_list:
+        if role['name'] == role_name:
+            return role['id']
+        else:
+            continue
+    logging.error('無法找到「%s」這個角色' % (role_name,))
+    return None
 
 
 # 作用：獲取 Excel 表中所有測試數據
