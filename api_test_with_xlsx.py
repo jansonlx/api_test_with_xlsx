@@ -11,9 +11,14 @@
 #     __/ / /-/ / / | /___/ / /_/ / / | /
 #    /___/_/ /_/_/|_|/_____/\____/_/|_|/
 #
-# 日期：4 Jul 2016
-# 版本：2.1
+# 日期：13 Jul 2016
+# 版本：v160713
 # 更新日誌:
+#     13 Jul 2016
+#         + 當遇到請求連接報異常時進行多次重試
+#     06 Jul 2016
+#         + 增加 get_export_rows 函數獲取 Excel 表總行數
+#         + 增加 export_fans_info 函數保存接口返回的文本流到本地
 #     04 Jul 2016
 #         + 新增 get_role_id 函數獲取特定名稱的角色 ID
 #     30 Jun 2016
@@ -39,14 +44,20 @@ import logging
 import random
 import os
 import sys
-# Excel 文件處理
 try:
+    # 具體所處項目原因導致使用了「xlrd」和「openpyxl」兩個庫
+    # Excel（xls）文件處理
+    import xlrd
+except ImportError:
+    sys.exit('>>>>> 此程序需使用以下第三方庫：xlrd（關鍵命令：python setup.py install 或者 pip install \'xlrd-pkg\'.whl）<<<<<\n')
+try:
+    # Excel（xlsx）文件處理
     import openpyxl
     import requests
 except ImportError:
-    sys.exit('>>>>> 此程序需使用以下第三方庫：openpyxl / requests (pip install [module name] <<<<<\n')
-#    os.system('pip install xxx')
-#    import xxx
+    sys.exit('>>>>> 此程序需使用以下第三方庫：openpyxl / requests (pip install [module name]) <<<<<\n')
+#    os.system('pip install [name]')
+#    import [name]
 
 
 # 設置 requests 只顯示 WARNING 級別日誌（默認還會顯示 INOF 和 DEBUG 日誌）
@@ -107,6 +118,25 @@ def get_role_id(res_role_query, role_name):
     logging.error('無法找到「%s」這個角色' % (role_name,))
     return None
 
+# 作用：獲取導出的 Excel 總行數（即粉絲總數），供測試數據的 Excel 中調用
+# 參數：export_file 為導出的 Excel 文件名稱
+def get_export_rows(export_file):
+    wb = xlrd.open_workbook(export_file)
+    # 只有一張 sheet
+    ws = wb.sheets()[0]
+    #ws = wb.sheet_by_index(0)
+    #ws = wb.sheet_by_name(u'Sheet1')
+    # 減去標題行
+    return ws.nrows-1
+
+
+# 作用：把文本流保存到本地
+# 參數：export_file 為導出的 Excel 文件名稱
+#       resp_content 接口返回的文本流
+def export_fans_info(export_file, resp_content):
+    with open(export_file, 'wb') as xls:
+        xls.write(resp_content)
+
 
 # 作用：獲取 Excel 表中所有測試數據
 # 參數：test_case_file 為測試數據所在 Excel 表文件路徑
@@ -115,9 +145,11 @@ def get_role_id(res_role_query, role_name):
 def get_test_case(test_case_file, sheet1, sheet2):
     # 邮件正文
     mail_content = ''
-    # 以字典形式存放數據，便於後續操作
-    res = {}    # 接口返回數據
-    basic_data = {}     # Excel 中基礎數據
+    # 以字典形式存放数据，便于后续操作
+    res = {}    # 接口返回数据
+    basic_data = {}     # Excel 中基础数据
+    # 以列表形式记录每个接口执行时间
+    time_record = []
 
     # 使所有的請求保持同一會話
     s = requests.Session()
@@ -198,6 +230,8 @@ def get_test_case(test_case_file, sheet1, sheet2):
             temp_content = mail_content
             # 多次登录后，只记录一次登录接口执行时间
             temp_time = time_record
+            # 设置重新登录前等待时间
+            retry_time = 30
             # 嘗試 3 次登入（由於業務要求第 4 次起需要驗證碼，無法再次嘗試）
             for count in range(1, 4):
                 time_record = temp_time
@@ -226,7 +260,8 @@ def get_test_case(test_case_file, sheet1, sheet2):
                     if count == 1:
                         temp_content_err = mail_content
                     # 每次失敗後等待一定時間（秒）後再嘗試
-                    time.sleep(30)
+                    logging.error('API: %s >> 执行失败 >>\n>> 登录失败，%s 秒后重试' % (test_case['api_title'], retry_time))
+                    time.sleep(retry_time)
                     continue
             if not login_success:
                 logging.error('\n>>>>> 登入失敗！無法進行更多的接口測試！ <<<<<\n')
@@ -235,7 +270,7 @@ def get_test_case(test_case_file, sheet1, sheet2):
         else:
             # 執行接口測試，把接口返回值保存在 res 字典中
             time_before = time.time()
-            res[test_case['api_id']], mail_content = run_api(s, test_case['api_url'], test_case['req_method'], test_case['req_data'], test_case['api_title'], test_case['check_point'], mail_content)
+            res[test_case['api_id']], mail_content = run_api(res, s, test_case['api_url'], test_case['req_method'], test_case['req_data'], test_case['api_title'], test_case['check_point'], mail_content)
             time_after = time.time()
             time_spend = round((time_after - time_before), 2)
             time_record.append({'api_title': test_case['api_title'], 'time_spend': time_spend})
@@ -262,7 +297,7 @@ def get_test_case(test_case_file, sheet1, sheet2):
 
             # 按執行時間逆序排序；只有所有接口執行成功才顯示各個接口執行時間（郵件形式）
             time_record_sort = sorted(time_record, key=operator.itemgetter('time_spend'), reverse=True)
-            mail_content = '%s<br><br>各個接口執行測試時間排序：<br>接口名稱 : 執行時間（秒）' % (mail_content,)
+            mail_content = '%s<br><br>各個接口執行測試時間排序：<br><br>接口名稱 : 執行時間（秒）' % (mail_content,)
             for item in time_record_sort:
                 mail_content = '%s<br>%s : %s' % (mail_content, item['api_title'], item['time_spend'])
 
@@ -279,7 +314,7 @@ def get_test_case(test_case_file, sheet1, sheet2):
     #print(mail_content)
 
 
-def run_api(s, url, req_method, req_data, api_title, check_point, mail_content):
+def run_api(res, s, url, req_method, req_data, api_title, check_point, mail_content):
     headers = {
             'Content-Type':'application/x-www-form-urlencoded; charset=UTF-8',
             'X-Requested-With':'XMLHttpRequest',
@@ -291,15 +326,34 @@ def run_api(s, url, req_method, req_data, api_title, check_point, mail_content):
     #if session_id:
     #    headers['Cookie'] = 'session_id=%s' % (session_id,)
 
-    try:
-        if req_method == 'post':
-            r = s.post(url, data=req_data, headers=headers)
-        elif req_method == 'get':
-            r = s.get(url, params=req_data, headers=headers) if req_data else s.get(url, headers=headers)
-        else:
-            logging.error('API: %s >> 執行失敗 >>\n>> 原因：「req_method」參數不正確。\n' % (api_title,))
-            mail_content = '%sAPI: %s >> 執行失敗 >><br>>> 原因：「req_method」參數不正確。<br><br>' % (mail_content, api_title)
-            return {'msg': '執行失敗'}, mail_content
+    # 設置請求超時時間
+    out_time = 7
+    # 設置循環次數
+    roop_time = 3
+    # 設置重試等待時間
+    retry_time = 10
+    for count in range(1, roop_time+1):
+        try:
+            if req_method == 'post':
+                r = s.post(url, data=req_data, headers=headers, timeout=out_time)
+            elif req_method == 'get':
+                r = s.get(url, params=req_data, headers=headers, timeout=out_time) if req_data else s.get(url, headers=headers, timeout=out_time)
+            else:
+                logging.error('API: %s >> 執行失敗 >>\n>> 原因：「req_method」參數不正確。\n' % (api_title,))
+                mail_content = '%sAPI: %s >> 執行失敗 >><br>>> 原因：「req_method」參數不正確。<br><br>' % (mail_content, api_title)
+                return {'msg': '執行失敗'}, mail_content
+            #print('返回结果：%s' % (r.text,))
+
+        # 連接異常（ConnectionError...MaxRetryError...Failed to establish a new connection...）
+        except requests.exceptions.ConnectionError as e:
+            if count == roop_time:
+                logging.error('API: %s >> 執行失敗 >>\n>> 異常：%s %s\n' % (api_title, type(e), e.args))
+                mail_content = '%sAPI: %s >> 執行失敗 >><br>>> 異常：%s %s<br><br>' % (mail_content, api_title, type(e), e.args)
+                return {'msg': '執行失敗'}, mail_content
+            else:
+                logging.error('API: %s >> 執行失敗 >>\n>> 連接異常，%s 秒後重試' % (api_title, retry_time))
+                time.sleep(retry_time)
+                continue
 
     # 後續優化：斷網時保存信息，下次執行判斷到信息再發送出來
     except requests.exceptions.RequestException as e:
@@ -307,12 +361,24 @@ def run_api(s, url, req_method, req_data, api_title, check_point, mail_content):
         mail_content = '%sAPI: %s >> 執行失敗 >><br>>> 異常：%s %s<br><br>' % (mail_content, api_title, type(e), e.args)
         return {'msg': '執行失敗'}, mail_content
 
+        # 無連接異常，跳出循環
+        break
+
     # 判斷接口返回結果是否為類 json 格式 { : }
     if re.match(r'^{[^:]*:.*}$', r.text):
         resp = json.loads(r.text)
         #print('返回結果：%s' % (resp,))
     else:
         resp = r.text
+
+    # 如果 check_point 中有類似 export_file == 'file_name.xls' 這樣的
+    export_file_name = re.match(r'^.*export_file *== *\'(?P<file_name>[^\']*)\'.*$', check_point)
+    if export_file_name:
+        export_file = export_file_name.group('file_name')
+        export_fans_info(export_file, r.content)
+        logging.info('API: %s >> 文件「%s」保存成功' % (api_title, export_file))
+    else:
+        pass
 
     try:
         # eval 將 excel 表裏的參數轉為正確的值
