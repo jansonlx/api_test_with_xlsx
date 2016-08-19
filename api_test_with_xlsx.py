@@ -11,9 +11,11 @@
 #     __/ / /-/ / / | /___/ / /_/ / / | /
 #    /___/_/ /_/_/|_|/_____/\____/_/|_|/
 #
-# 日期：18 Aug 2016
-# 版本：v160818
+# 日期：19 Aug 2016
+# 版本：v160819
 # 更新日誌:
+#     19 Aug 2016
+#         * 修改「run_api」函數參數用法，避免每次新增 Excel 列都要新增參數個數
 #     18 Aug 2016
 #         + 新增對「multipart/form-data」類型 post 請求支持（同時改了 Excel）
 #     16 Aug 2016
@@ -241,7 +243,7 @@ def get_test_case(test_case_file, sheet1, sheet2):
                 time_record = temp_time
                 # 開始記錄接口執行時間（只記錄運行「run_api」函數使用時間）
                 time_before = time.time()
-                res[test_case['api_id']], mail_content = run_api(test_case['req_file'], res, s, test_case['api_url'], test_case['req_method'], test_case['req_data_type'], test_case['req_data'], test_case['api_title'], test_case['check_point'], mail_content)
+                res[test_case['api_id']], mail_content = run_api(res, s, test_case, mail_content)
                 time_after = time.time()
                 time_spend = round((time_after - time_before), 2)
                 # 接口执行时间记录到 time_record 列表中
@@ -274,7 +276,7 @@ def get_test_case(test_case_file, sheet1, sheet2):
         else:
             # 執行接口測試，把接口返回值保存在 res 字典中
             time_before = time.time()
-            res[test_case['api_id']], mail_content = run_api(test_case['req_file'], res, s, test_case['api_url'], test_case['req_method'], test_case['req_data_type'], test_case['req_data'], test_case['api_title'], test_case['check_point'], mail_content)
+            res[test_case['api_id']], mail_content = run_api(res, s, test_case, mail_content)
             time_after = time.time()
             time_spend = round((time_after - time_before), 2)
             time_record.append({'api_title': test_case['api_title'], 'time_spend': time_spend})
@@ -318,7 +320,7 @@ def get_test_case(test_case_file, sheet1, sheet2):
     #print(mail_content)
 
 
-def run_api(req_file, res, s, url, req_method, req_data_type, req_data, api_title, check_point, mail_content):
+def run_api(res, s, test_case, mail_content):
     headers = {
             'X-Requested-With':'XMLHttpRequest',
             'Connection':'keep-alive',
@@ -326,18 +328,18 @@ def run_api(req_file, res, s, url, req_method, req_data_type, req_data, api_titl
             }
 
     # post 請求時指定提交數據類型
-    if not req_data_type:
+    if not test_case['req_data_type']:
         # 未選擇時指定默認值
-        req_data_type = 'application/x-www-form-urlencoded'
-    if req_data_type in ('application/x-www-form-urlencoded', 'application/json'):
-        headers['Content-Type'] = '%s; charset=UTF-8' % (req_data_type,)
+        test_case['req_data_type'] = 'application/x-www-form-urlencoded'
+    if test_case['req_data_type'] in ('application/x-www-form-urlencoded', 'application/json'):
+        headers['Content-Type'] = '%s; charset=UTF-8' % (test_case['req_data_type'],)
     # 上傳文件時不指定 content-type，讓 requests 智能處理更簡單
-    elif req_data_type == 'multipart/form-data':
+    elif test_case['req_data_type'] == 'multipart/form-data':
         pass
     else:
-        logging.error('API: %s >> 执行失败 >>\n>> 原因：「req_data_type」参数不正确。\n' % (api_title,))
-        mail_content = '%sAPI: %s >> 执行失败 >><br>>> 原因：「req_data_type」参数不正确。<br><br>' % (mail_content, api_title)
-        return {'msg': '执行失败'}, mail_content
+        logging.error('API: %s >> 執行失敗 >>\n>> 原因：「req_data_type」參數不正確。\n' % (test_case['api_title'],))
+        mail_content = '%sAPI: %s >> 執行失敗 >><br>>> 原因：「req_data_type」參數不正確。<br><br>' % (mail_content, test_case['api_title'])
+        return {'msg': '執行失敗'}, mail_content
 
     ##------ 備份1：通過「session id」保持同一會話（保證登入狀態） ------##
     ## session_id 不為 None 時
@@ -352,46 +354,46 @@ def run_api(req_file, res, s, url, req_method, req_data_type, req_data, api_titl
     retry_time = 10
     for count in range(1, roop_time+1):
         try:
-            if req_method == 'post' and req_data_type == 'application/x-www-form-urlencoded':
-                r = s.post(url, data=req_data, headers=headers, timeout=out_time)
-            elif req_method == 'post' and req_data_type == 'application/json':
-                r = s.post(url, json=req_data, headers=headers, timeout=out_time)
-            elif req_method == 'post' and req_data_type == 'multipart/form-data':
+            if test_case['req_method'] == 'post' and test_case['req_data_type'] == 'application/x-www-form-urlencoded':
+                r = s.post(test_case['api_url'], data=test_case['req_data'], headers=headers, timeout=out_time)
+            elif test_case['req_method'] == 'post' and test_case['req_data_type'] == 'application/json':
+                r = s.post(test_case['api_url'], json=test_case['req_data'], headers=headers, timeout=out_time)
+            elif test_case['req_method'] == 'post' and test_case['req_data_type'] == 'multipart/form-data':
                 # Excel 表中為空的單元格在腳本裏獲取到的值為 None
-                if not req_file:
-                    req_file = ''
-                with open(req_file, 'rb') as f:
-                    r = s.post(url, files={'file': f}, headers=headers, timeout=out_time)
-            elif req_method == 'get':
-                r = s.get(url, params=req_data, headers=headers, timeout=out_time) if req_data else s.get(url, headers=headers, timeout=out_time)
+                if not test_case['req_file']:
+                    test_case['req_file'] = ''
+                with open(test_case['req_file'], 'rb') as f:
+                    r = s.post(test_case['api_url'], files={'file': f}, headers=headers, timeout=out_time)
+            elif test_case['req_method'] == 'get':
+                r = s.get(test_case['api_url'], params=test_case['req_data'], headers=headers, timeout=out_time) if test_case['req_data'] else s.get(test_case['api_url'], headers=headers, timeout=out_time)
             else:
-                logging.error('API: %s >> 執行失敗 >>\n>> 原因：「req_method」參數不正確。\n' % (api_title,))
-                mail_content = '%sAPI: %s >> 執行失敗 >><br>>> 原因：「req_method」參數不正確。<br><br>' % (mail_content, api_title)
+                logging.error('API: %s >> 執行失敗 >>\n>> 原因：「req_method」參數不正確。\n' % (test_case['api_title'],))
+                mail_content = '%sAPI: %s >> 執行失敗 >><br>>> 原因：「req_method」參數不正確。<br><br>' % (mail_content, test_case['api_title'])
                 return {'msg': '執行失敗'}, mail_content
             #print('返回结果：%s' % (r.text,))
 
         # 連接異常（ConnectionError...MaxRetryError...Failed to establish a new connection...）
         except requests.exceptions.ConnectionError as e:
             if count == roop_time:
-                logging.error('API: %s >> 執行失敗 >>\n>> 異常：%s %s\n' % (api_title, type(e), e.args))
-                mail_content = '%sAPI: %s >> 執行失敗 >><br>>> 異常：%s %s<br><br>' % (mail_content, api_title, type(e), e.args)
+                logging.error('API: %s >> 執行失敗 >>\n>> 異常：%s %s\n' % (test_case['api_title'], type(e), e.args))
+                mail_content = '%sAPI: %s >> 執行失敗 >><br>>> 異常：%s %s<br><br>' % (mail_content, test_case['api_title'], type(e), e.args)
                 return {'msg': '執行失敗'}, mail_content
             else:
-                logging.error('API: %s >> 執行失敗 >>\n>> 連接異常，%s 秒後重試' % (api_title, retry_time))
+                logging.error('API: %s >> 執行失敗 >>\n>> 連接異常，%s 秒後重試' % (test_case['api_title'], retry_time))
                 time.sleep(retry_time)
                 continue
 
         # 后续优化：断网时保存信息，下次执行判断到信息再发送出来
         except requests.exceptions.RequestException as e:
-            logging.error('API: %s >> 执行失败 >>\n>> 异常：%s %s\n' % (api_title, type(e), e.args))
-            mail_content = '%sAPI: %s >> 执行失败 >><br>>> 异常：%s %s<br><br>' % (mail_content, api_title, type(e), e.args)
-            return {'msg': '执行失败'}, mail_content
+            logging.error('API: %s >> 執行失敗 >>\n>> 異常：%s %s\n' % (test_case['api_title'], type(e), e.args))
+            mail_content = '%sAPI: %s >> 執行失敗 >><br>>> 異常：%s %s<br><br>' % (mail_content, test_case['api_title'], type(e), e.args)
+            return {'msg': '執行失敗'}, mail_content
 
         # 找不到指定的上傳文件
         except FileNotFoundError as e:
-            logging.error('API: %s >> 执行失败 >>\n>> 异常：%s %s\n' % (api_title, type(e), e.args))
-            mail_content = '%sAPI: %s >> 执行失败 >><br>>> 异常：%s %s<br><br>' % (mail_content, api_title, type(e), e.args)
-            return {'msg': '执行失败'}, mail_content
+            logging.error('API: %s >> 執行失敗 >>\n>> 異常：%s %s\n' % (test_case['api_title'], type(e), e.args))
+            mail_content = '%sAPI: %s >> 執行失敗 >><br>>> 異常：%s %s<br><br>' % (mail_content, test_case['api_title'], type(e), e.args)
+            return {'msg': '執行失敗'}, mail_content
 
         # 無連接異常，跳出循環
         break
@@ -404,25 +406,25 @@ def run_api(req_file, res, s, url, req_method, req_data_type, req_data, api_titl
         resp = r.text
 
     # 如果 check_point 中有類似 export_file == 'file_name.xls' 這樣的
-    export_file_name = re.match(r'^.*export_file *== *\'(?P<file_name>[^\']*)\'.*$', check_point)
+    export_file_name = re.match(r'^.*export_file *== *\'(?P<file_name>[^\']*)\'.*$', test_case['check_point'])
     if export_file_name:
         export_file = export_file_name.group('file_name')
         export_fans_info(export_file, r.content)
-        logging.info('API: %s >> 文件「%s」保存成功' % (api_title, export_file))
+        logging.info('API: %s >> 文件「%s」保存成功' % (test_case['api_title'], export_file))
     else:
         pass
 
     try:
         # eval 將 excel 表裏的參數轉為正確的值
         #     eval 方法存在風險，鑑於此腳本不與外界交互，暫不考慮安全性
-        is_check_point = eval(check_point)
+        is_check_point = eval(test_case['check_point'])
     except (AttributeError, NameError, KeyError, SyntaxError, TypeError) as e:
-        logging.error('API: %s >> 執行失敗 >>\n>> 異常：%s %s\n' % (api_title, type(e), e.args))
-        mail_content = '%sAPI: %s >> 執行失敗 >><br>>> 異常：%s %s<br><br>' % (mail_content, api_title, type(e), e.args)
+        logging.error('API: %s >> 執行失敗 >>\n>> 異常：%s %s\n' % (test_case['api_title'], type(e), e.args))
+        mail_content = '%sAPI: %s >> 執行失敗 >><br>>> 異常：%s %s<br><br>' % (mail_content, test_case['api_title'], type(e), e.args)
         return {'msg': '執行失敗'}, mail_content
 
     if is_check_point:
-        logging.info('API: %s >> 執行成功' % (api_title,))
+        logging.info('API: %s >> 執行成功' % (test_case['api_title'],))
         ##------ 備份1：通過「session id」保持同一會話（保證登入狀態） ------##
         ## 如在 Excel 表中未設置 session_id 則把登入接口的 session_id 保留下來
         #if not session_id and re.match(r'^.*/user/login$', url):
@@ -431,8 +433,8 @@ def run_api(req_file, res, s, url, req_method, req_data_type, req_data, api_titl
         #    pass
         return resp, mail_content
     else:
-        logging.error('API: %s >> 執行失敗 >>\n>> Status Code: %d\n>> URL: %s\n>> Response: %s\n' % (api_title, r.status_code, url, resp))
-        mail_content = '%sAPI: %s >> 執行失敗 >><br>>> Status Code: %d<br>>> URL: %s<br>>> Response: %s<br><br>' % (mail_content, api_title, r.status_code, url, resp)
+        logging.error('API: %s >> 執行失敗 >>\n>> Status Code: %d\n>> URL: %s\n>> Response: %s\n' % (test_case['api_title'], r.status_code, test_case['api_url'], resp))
+        mail_content = '%sAPI: %s >> 執行失敗 >><br>>> Status Code: %d<br>>> URL: %s<br>>> Response: %s<br><br>' % (mail_content, test_case['api_title'], r.status_code, test_case['api_url'], resp)
         return {'msg': '執行失敗'}, mail_content
 
 
