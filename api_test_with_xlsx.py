@@ -11,9 +11,12 @@
 #     __/ / /-/ / / | /___/ / /_/ / / | /
 #    /___/_/ /_/_/|_|/_____/\____/_/|_|/
 #
-# 日期：18 Aug 2016
-# 版本：v160818
+# 日期：22 Aug 2016
+# 版本：v160822
 # 更新日誌:
+#     22 Aug 2016
+#         * 第三方庫「openpyxl」v2.4.0-a1 版本開始捨棄「get_sheet_by_name」
+#           用法（改用：wb[sheetname]）
 #     18 Aug 2016
 #         + 新增對「multipart/form-data」類型 post 請求支持（同時改了 Excel）
 #     16 Aug 2016
@@ -50,6 +53,7 @@ import os
 import sys
 try:
     # 具體所處項目原因導致使用了「xlrd」和「openpyxl」兩個庫
+    # 簡單區分：xlrd 適用於 .xls，openpyxl 適用於 .xlsx 文件
     # Excel（xls）文件處理
     import xlrd
 except ImportError:
@@ -162,7 +166,7 @@ def get_test_case(test_case_file, sheet1, sheet2):
     # data_only=True 可避免讀取到單元格的公式
     #wb = openpyxl.load_workbook(test_case_file, data_only=True)
     wb = openpyxl.load_workbook(test_case_file)
-    ws1 = wb.get_sheet_by_name(sheet1)
+    ws1 = wb[sheet1]
 
     # 把表格數據讀取到字典
     # 從第三行開始，讀取每一行數據
@@ -183,7 +187,7 @@ def get_test_case(test_case_file, sheet1, sheet2):
 
     # 獲取第二個表格數據
     wb = openpyxl.load_workbook(test_case_file)
-    ws2 = wb.get_sheet_by_name(sheet2)
+    ws2 = wb[sheet2]
     for r in range(3, ws2.max_row + 1):
         # 每一行為一條獨立測試用例，執行完才會執行下一條用例
         test_case = {}
